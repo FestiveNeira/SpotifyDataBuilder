@@ -1,0 +1,22 @@
+{
+  "name": "spotifydatabuilder",
+  "version": "1.0.0",
+  "description": "",
+  "main": "SpotifyDataBuilder.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "Aria Vanevenhoven",
+  "license": "ISC",
+  "dependencies": {
+    "csv": "^6.2.7",
+    "discord.js": "^14.6.0",
+    "dotenv": "^16.0.3",
+    "express": "^4.18.2",
+    "install": "^0.13.0",
+    "npm": "^9.1.2",
+    "spotify-web-api-node": "^5.0.2",
+    "sqlite3": "^5.1.4"
+  }
+}
