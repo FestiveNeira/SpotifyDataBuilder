@@ -208,7 +208,7 @@ var bot = {
         }
         bot.getAlbums(arr, 0, [], [])
         .then((albums) => {
-            bot.getSongs(albums)
+            bot.getSongs(albums, 0)
         })
     },
 
@@ -243,8 +243,31 @@ var bot = {
         });
     },
 
-    getSongs: function (albums) {
+    getSongs: function (albums, ind) {
         // get tracks from album get features from tracks make song objects
+        var loadedtracks = [];
+        if (ind < albums.length) {
+            bot.spotifyApi.getAlbumTracks(albums[ind])
+            .then((tracks) => {
+                tracks.body.items.forEach(track => {
+                    loadedtracks.push(track);
+                });
+            })
+            .then(() => {
+                if (loadedtracks.length >= 100) {
+                    var temp = loadedtracks.splice(0, 100);
+                    bot.spotifyApi.getAudioFeaturesForTracks(bot.getIDs(temp))
+                    .then((featuresList) => {
+                        var readObjList = [];
+                        for (var i = 0; i < temp.length; i++) {
+                            readObjList.push(new ReadObj(temp[i], featuresList.body.audio_features[i]));
+                        }
+                        return readObjList;
+                    })
+                    .then() // continue
+                }
+            });
+        }
     },
 
     // -------------------- SAVING AND LOADING -------------------- //
