@@ -207,9 +207,21 @@ var bot = {
             arr.push(temp);
         }
         bot.getAlbums(arr, 0, [], [])
-        .then((albums) => {
-            bot.getSongs(albums, 0)
+        .then((albums) => bot.getSongs(albums, 0))
+        .then((dataObjects) => {
+            data.forEach(item => {
+                // Only support non-local songs
+                if (item.features != null && item.track.track != null) {
+                    if (item.track.track.uri.indexOf("spotify:local") == -1) {
+                        var song = new Song(item.track.track, item.features);
+                        bot.SongObjects.set(song.uri, song);
+                    }
+                }
+            });
+            bot.saveData();
+            bot.count();
         })
+        .catch(() => reject())
     },
 
     getAlbums: function (arr, ind, totalbums, newalbums) {
@@ -264,7 +276,7 @@ var bot = {
                         }
                         return readObjList;
                     })
-                    .then() // continue
+                    .then((result) => resolve(result))
                 }
             });
         }
