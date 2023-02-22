@@ -146,7 +146,7 @@ var bot = {
     },
     // ------------------------------------------------------------ //
 
-    //* Fix the loading, objects are already rewritten
+    // Reloads all non feature data of objects
     reloadAllData: function () {
         // bot.songObjects has the songs loaded in the old form
         
@@ -170,7 +170,6 @@ var bot = {
             bot.saveData();
         });
     },
-
     fixSongs: function (arr, ind) {
         console.log("Getting section " + (ind + 1) + " of " + arr.length);
         return new Promise ((resolve, reject) => {
@@ -213,90 +212,28 @@ var bot = {
         })
     },
 
-    /*
-    fixArtURI: function () {
-        var songs = [];
-        bot.SongObjects.forEach((song, key) => {
-            if (key.includes("spotify:track:")) {
-                songs.push(song.id);
-            }
-            else {
-                bot.SongObjects.set(key, null);
-            }
-        });
-        var arr = [];
-        for (var i = 0; i < songs.length; i += 50) {
-            var temp = songs.slice(i, i + 50);
-            
-            arr.push(temp);
-        }
-        bot.getArtURI(arr, 0);
-    },
-
-    getArtURI: function (arr, ind) {
-        console.log("Getting section " + ind + " of " + arr.length);
-        return new Promise ((resolve, reject) => {
-            bot.spotifyApi.getTracks(arr[ind])
-            .then((tracks) => {
-                for (var i = 0; i < tracks.body.tracks.length; i++) {
-                    if (tracks.body.tracks[i] == null) {
-                        bot.SongObjects.set(tracks.body.tracks[i], null);
-                    }
-                    else {
-                        for (var o = 0; o < tracks.body.tracks[i].artists.length; o++) {
-                            temp = bot.SongObjects.get(tracks.body.tracks[i].uri);
-                            temp.artists = [];
-                            try {
-                                temp.artists.push(new Artist(tracks.body.tracks[i].artists[o].name, tracks.body.tracks[i].artists[o].uri, tracks.body.tracks[i].artists[o].id))
-                            } catch (error) {
-                                console.log("fuck");
-                            }
-                        }
-                    }
-                    console.log("Section " + ind + " updated");
-                }
-                if (arr.length > ind + 1) {
-                    bot.getArtURI(arr, ind + 1)
-                    .then(() => resolve());
-                }
-                else {
-                    resolve();
-                }
-            })
-            .catch((error) => {
-                if (error.statusCode === 500 || error.statusCode === 502 || error.statusCode === 429) {
-                    console.log('server error')
-                    // If there's a server error try again
-                    bot.getArtURI(arr, ind);
-                }
-                else {
-                    console.log("Something Went Wrong In getArtURI");
-                    console.log(error);
-                }
-            })
-        })
-    },
-    //*/
-
+    // Retrieves additional data for artists already present
     loadAllArtSongs: function () {
-        var uartists = new Discord.Collection;
-        bot.SongObjects.forEach((song, key) => {
-            song.artists.forEach(artist => {
-                uartists.set(artist.uri, artist);
-            });
+        var uris = [];
+        bot.ArtistObjects.forEach((artist, key) => {
+            uris.push(artist.id);
         });
-
+        
         var arr = [];
-        for (var i = 0; i < uartists.length; i += 50) {
-            var temp = uartists.slice(i, i + 50);
+        for (var i = 0; i < uris.length; i += 50) {
+            var temp = uris.slice(0, 50);
             arr.push(temp);
         }
-        bot.getAlbums(arr, 0, [], [])
-        .then((albums) => bot.getSongs(albums, 0))
+
+        bot.getData(arr, 0);
+    },
+    getData: function (arr, ind) {
+        bot.getAlbums(arr[ind], 0, [], [])
+        .then((albums) => bot.getSongs(albums, 0, [], []))
         .then((dataObjects) => {
-            data.forEach(item => {
-                // Only support non-local songs
+            dataObjects.forEach(item => {
                 if (item.features != null && item.track.track != null) {
+                    // Only support non-local songs
                     if (item.track.track.uri.indexOf("spotify:local") == -1) {
                         var song = new Song(item.track.track, item.features);
                         bot.SongObjects.set(song.uri, song);
@@ -305,10 +242,9 @@ var bot = {
             });
             bot.saveData();
             bot.count();
-        })
-        .catch(() => reject())
+            bot.getData(arr, ind + 1);
+        });
     },
-
     getAlbums: function (arr, ind, totalbums, newalbums) {
         console.log("Getting artist " + ind + " of " + arr.length);
         Array.prototype.push.apply(totalbums, newalbums);
@@ -329,7 +265,7 @@ var bot = {
                     if (error.statusCode === 500 || error.statusCode === 502 || error.statusCode === 429) {
                         console.log('server error')
                         // If there's a server error try again
-                        bot.getAlbums(arr, ind);
+                        bot.getAlbums(arr, ind, totalbums, []);
                     }
                     else {
                         console.log("Something Went Wrong In getAlbums");
@@ -339,42 +275,62 @@ var bot = {
             }
         });
     },
-
-    getSongs: function (albums, ind) {
+    getSongs: function (albums, ind, readObjListTotal, readObjListNew) {
         // get tracks from album get features from tracks make song objects
-        var loadedtracks = [];
-        if (ind < albums.length) {
-            bot.spotifyApi.getAlbumTracks(albums[ind])
-            .then((tracks) => {
-                tracks.body.items.forEach(track => {
-                    loadedtracks.push(track);
-                });
-            })
-            .then(() => {
-                if (loadedtracks.length >= 100) {
-                    var temp = loadedtracks.splice(0, 100);
-                    bot.spotifyApi.getAudioFeaturesForTracks(bot.getIDs(temp))
-                    .then((featuresList) => {
-                        var readObjList = [];
-                        for (var i = 0; i < temp.length; i++) {
-                            readObjList.push(new ReadObj(temp[i], featuresList.body.audio_features[i]));
-                        }
-                        return readObjList;
-                    })
-                    .then((result) => resolve(result))
-                }
-            });
-        }
+        Array.prototype.push.apply(readObjListTotal, readObjListNew);
+
+        return new Promise ((resolve, reject) => {
+            var loadedtracks = [];
+            if (ind >= albums.length) {
+                resolve();
+            }
+            else {
+                bot.spotifyApi.getAlbumTracks(albums[ind])
+                .then((tracks) => {
+                    tracks.body.items.forEach(track => {
+                        loadedtracks.push(track);
+                    });
+                })
+                .then(() => {
+                    if (loadedtracks.length >= 100 || ind == albums.length - 1) {
+                        var temp = loadedtracks.splice(0, 100);
+                        bot.spotifyApi.getAudioFeaturesForTracks(bot.getIDs(temp))
+                        .then((featuresList) => {
+                            var readObjList = [];
+                            for (var i = 0; i < temp.length; i++) {
+                                readObjList.push(new ReadObj(temp[i], featuresList.body.audio_features[i]));
+                            }
+                            return readObjList;
+                        })
+                        .then((dataList) => bot.getSongs(albums, ind + 1, readObjListTotal, dataList))
+                        .then((result) => resolve(result));
+                    }
+                    else {
+                        bot.getSongs(albums, ind + 1, readObjListTotal, [])
+                        .then((result) => resolve(result));
+                    }
+                })
+            }
+        });
     },
 
     // -------------------- SAVING AND LOADING -------------------- //
     loadData: function () {
         // Get saved data
-        var file = './data/data.json';
-        var data = JSON.parse(fs.readFileSync(file));
+        var songfile = './data/songdata.json';
+        var artfile = './data/artdata.json';
+        var songdata = JSON.parse(fs.readFileSync(songfile));
+        var artdata = JSON.parse(fs.readFileSync(artfile));
 
-        for (var i = 0; i < data.keys.length; i++) {
-            bot.SongObjects.set(data.keys[i], data.songs[i]);
+        for (var i = 0; i < songdata.keys.length; i++) {
+            if (songdata.songs[i] != null) {
+                bot.SongObjects.set(songdata.keys[i], songdata.songs[i]);
+            }
+        }
+        for (var i = 0; i < artdata.keys.length; i++) {
+            if (artdata.artists[i] != null) {
+                bot.ArtistObjects.set(artdata.keys[i], artdata.artists[i]);
+            }
         }
 
         // Log activity
@@ -385,15 +341,23 @@ var bot = {
     },
     saveData: function () {
         // Create a wrapper for saving data
-        var data = {
+        var songdata = {
             keys: Array.from(bot.SongObjects.keys()),
             songs: Array.from(bot.SongObjects.values())
         }
+        var artdata = {
+            keys: Array.from(bot.ArtistObjects.keys()),
+            artists: Array.from(bot.ArtistObjects.values())
+        }
 
-        var file = './data/data.json';
+        var songfile = './data/songdata.json';
+        var artfile = './data/artdata.json';
 
-        // Saves data to a .json file
-        fs.writeFileSync(file, JSON.stringify(data), e => {
+        // Saves data to a .json files
+        fs.writeFileSync(songfile, JSON.stringify(songdata), e => {
+            if (e) throw e;
+        });
+        fs.writeFileSync(artfile, JSON.stringify(artdata), e => {
             if (e) throw e;
         });
 
@@ -498,21 +462,21 @@ var bot = {
         return new Promise((resolve, reject) => {
             // Create an empty list to return
             bot.getTracks(playid)
-                .then((data) => {
-                    data.forEach(item => {
-                        // Only support non-local songs
-                        if (item.features != null && item.track.track != null) {
-                            if (item.track.track.uri.indexOf("spotify:local") == -1) {
-                                var song = new Song(item.track.track, item.features);
-                                bot.SongObjects.set(song.uri, song);
-                            }
+            .then((data) => {
+                data.forEach(item => {
+                    // Only support non-local songs
+                    if (item.features != null && item.track.track != null) {
+                        if (item.track.track.uri.indexOf("spotify:local") == -1) {
+                            var song = new Song(item.track.track, item.features);
+                            bot.SongObjects.set(song.uri, song);
                         }
-                    });
-                    bot.saveData();
-                    bot.count();
-                })
+                    }
+                });
+                bot.saveData();
+                bot.count();
+            })
         })
-            .catch(() => reject());
+        .catch(() => reject());
     },
     // Counts songs in the database
     count: function () {
@@ -527,21 +491,8 @@ var bot = {
     },
     // Counts artists in the database
     acount: function () {
-        var artcount = new Discord.Collection;
-
-        bot.SongObjects.forEach((song, key) => {
-            song.artists.forEach(artist => {
-                if (artcount.get(artist.uri) == null) {
-                    artcount.set(artist.uri, 1);
-                }
-                else {
-                    artcount.set(artist.uri, artcount.get(artist.uri) + 1);
-                }
-            });
-        });
-
         var count = 0;
-        artcount.forEach((song, key) => {
+        bot.ArtistObjects.forEach((artist, key) => {
             count++;
         });
 
