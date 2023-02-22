@@ -46,6 +46,13 @@ class Artist {
         this.name = name;
         this.uri = uri;
         this.id = id;
+        this.songs = [];
+    }
+
+    addSong(uri) {
+        if (!this.songs.includes(uri)) {
+            this.songs.push(uri);
+        }
     }
 }
 
@@ -54,13 +61,23 @@ class Song {
         this.artists = [];
 
         for (var i = 0; i < track.artists.length; i++) {
-            this.artists.push(new Artist(track.artists[i].name, track.artists[i].uri, track.artists[i].id));
+            if (bot.ArtistObjects.get(track.artists[i].uri) == null) {
+                bot.ArtistObjects.set(track.artists[i].uri, new Artist(track.artists[i].name, track.artists[i].uri, track.artists[i].id));
+                this.artists.push(bot.ArtistObjects.get(track.artists[i].uri));
+            }
+            bot.ArtistObjects.get(track.artists[i].uri).addSong(track.uri);
         }
         
         this.uri = track.uri;
         this.id = track.id;
         this.name = track.name;
         
+        this.features = new Features(features);
+    }
+}
+
+class Features {
+    constructor(features) {
         this.duration_ms = features.duration_ms; // track duration in ms
         this.key = features.key; // 0 = C, 1 = C#/Db, 2 = D, 3 = D#/Eb, 4 = E, 5 = F, 6 = F#/Gb, 7 = G, 8 = G#/Ab, 9 = A, 10 = A#/Bb, 11 = B
         this.mode = features.mode; // 1 major key, 0 minor key
@@ -103,6 +120,7 @@ var bot = {
 
     // Map of uris to song objects
     SongObjects: new Discord.Collection,
+    ArtistObjects: new Discord.Collection,
 
     // ----------------------- INITIAL LOAD ----------------------- //
     // Runs with on ready
@@ -128,9 +146,76 @@ var bot = {
     },
     // ------------------------------------------------------------ //
 
+    //* Fix the loading, objects are already rewritten
+    reloadAllData: function () {
+        // bot.songObjects has the songs loaded in the old form
+        
+        var songs = [];
+        bot.SongObjects.forEach((song, key) => {
+            if (key.includes("spotify:track:")) {
+                songs.push(song.id);
+            }
+            else {
+                bot.SongObjects.set(key, null);
+            }
+        });
+        var arr = [];
+        for (var i = 0; i < songs.length; i += 50) {
+            var temp = songs.slice(i, i + 50);
+            
+            arr.push(temp);
+        }
+        bot.fixSongs(arr, 0)
+        .then(() => {
+            bot.saveData();
+        });
+    },
+
+    fixSongs: function (arr, ind) {
+        console.log("Getting section " + (ind + 1) + " of " + arr.length);
+        return new Promise ((resolve, reject) => {
+            bot.spotifyApi.getTracks(arr[ind])
+            .then((tracks) => {
+                for (var i = 0; i < tracks.body.tracks.length; i++) {
+                    if (tracks.body.tracks[i] == null) {
+                        bot.SongObjects.set(tracks.body.tracks[i], null);
+                    }
+                    else {
+                        temp = bot.SongObjects.get(tracks.body.tracks[i].uri);
+                        try {
+                            bot.SongObjects.set(tracks.body.tracks[i].uri, new Song(tracks.body.tracks[i], temp));
+                        }
+                        catch {
+                            console.log("skipping");
+                        }
+                    }
+                    console.log("Section " + ind + " updated");
+                }
+                if (arr.length > ind + 1) {
+                    bot.fixSongs(arr, ind + 1)
+                    .then(() => resolve());
+                }
+                else {
+                    resolve();
+                }
+            })
+            .catch((error) => {
+                if (error.statusCode === 500 || error.statusCode === 502 || error.statusCode === 429) {
+                    console.log('server error')
+                    // If there's a server error try again
+                    bot.getArtURI(arr, ind);
+                }
+                else {
+                    console.log("Something Went Wrong In fixSongs");
+                    console.log(error);
+                }
+            })
+        })
+    },
+
     /*
     fixArtURI: function () {
-        var songs = []
+        var songs = [];
         bot.SongObjects.forEach((song, key) => {
             if (key.includes("spotify:track:")) {
                 songs.push(song.id);
