@@ -199,7 +199,7 @@ var bot = {
                 }
             })
             .catch((error) => {
-                if (error.statusCode === 500 || error.statusCode === 502 || error.statusCode === 429) {
+                if (error.statusCode === 500 || error.statusCode === 502) {
                     console.log('server error')
                     // If there's a server error try again
                     bot.getArtURI(arr, ind);
@@ -229,7 +229,7 @@ var bot = {
     },
     getData: function (arr, ind) {
         bot.getAlbums(arr[ind], 0, [], [])
-        .then((albums) => bot.getSongs(albums, 0, [], []))
+        .then((albums) => bot.getSongs(bot.sliceBuilder(albums, 20), 0, [], []))
         .then((dataObjects) => {
             dataObjects.forEach(item => {
                 if (item.features != null && item.track.track != null) {
@@ -243,10 +243,25 @@ var bot = {
             bot.saveData();
             bot.count();
             bot.getData(arr, ind + 1);
+        })
+        .catch((error) => {
+            if (error.statusCode === 500 || error.statusCode === 502) {
+                console.log('server error')
+                // If there's a server error try again
+                bot.getData(arr, ind);
+            }
+            else if (error.statusCode === 429) {
+                console.log('rate limit, retrying after ' + error.headers["retry-after"]);
+                bot.delay(parseInt(error.headers["retry-after"])*1000)
+                .then(() => bot.getData(arr, ind));
+            }
+            else {
+                console.log("Something Went Wrong In getAlbums");
+                console.log(error);
+            }
         });
     },
     getAlbums: function (arr, ind, totalbums, newalbums) {
-        console.log("Getting artist " + ind + " of " + arr.length);
         Array.prototype.push.apply(totalbums, newalbums);
 
         return new Promise ((resolve, reject) => {
@@ -254,6 +269,7 @@ var bot = {
                 resolve(totalbums);
             }
             else {
+                console.log("Getting artist " + (ind + 1) + " of " + arr.length);
                 bot.spotifyApi.getArtistAlbums(arr[ind]).then((albums) => {
                     for (var i = 0; i < albums.body.items.length; i++) {
                         newalbums.push(albums.body.items[i].id);
@@ -262,10 +278,15 @@ var bot = {
                     .then((albums) => resolve(albums));
                 })
                 .catch((error) => {
-                    if (error.statusCode === 500 || error.statusCode === 502 || error.statusCode === 429) {
+                    if (error.statusCode === 500 || error.statusCode === 502) {
                         console.log('server error')
                         // If there's a server error try again
                         bot.getAlbums(arr, ind, totalbums, []);
+                    }
+                    else if (error.statusCode === 429) {
+                        console.log('rate limit, retrying after ' + error.headers["retry-after"]);
+                        bot.delay(parseInt(error.headers["retry-after"])*1000)
+                        .then(() => bot.getAlbums(arr, ind, totalbums, []));
                     }
                     else {
                         console.log("Something Went Wrong In getAlbums");
@@ -275,26 +296,30 @@ var bot = {
             }
         });
     },
-    getSongs: function (albums, ind, readObjListTotal, readObjListNew) {
+    getSongs: function (albums, ind, readObjListTotal, readObjListNew, loadedtracks = []) {
         // get tracks from album get features from tracks make song objects
-        Array.prototype.push.apply(readObjListTotal, readObjListNew);
+        if (readObjListNew != []) {
+            Array.prototype.push.apply(readObjListTotal, readObjListNew);
+        }
 
         return new Promise ((resolve, reject) => {
-            var loadedtracks = [];
             if (ind >= albums.length) {
-                resolve();
+                resolve(readObjListTotal);
             }
             else {
-                bot.spotifyApi.getAlbumTracks(albums[ind])
-                .then((tracks) => {
-                    tracks.body.items.forEach(track => {
-                        loadedtracks.push(track);
+                console.log("Getting album set " + (ind + 1) + " of " + albums.length);
+                bot.spotifyApi.getAlbums(albums[ind])
+                .then((albums) => {
+                    albums.body.albums.forEach(album => {
+                        album.tracks.items.forEach(track => {
+                            loadedtracks.push(track);
+                        });
                     });
                 })
                 .then(() => {
                     if (loadedtracks.length >= 100 || ind == albums.length - 1) {
                         var temp = loadedtracks.splice(0, 100);
-                        bot.spotifyApi.getAudioFeaturesForTracks(bot.getIDs(temp))
+                        bot.spotifyApi.getAudioFeaturesForTracks(bot.getIDs(temp, true))
                         .then((featuresList) => {
                             var readObjList = [];
                             for (var i = 0; i < temp.length; i++) {
@@ -302,16 +327,39 @@ var bot = {
                             }
                             return readObjList;
                         })
-                        .then((dataList) => bot.getSongs(albums, ind + 1, readObjListTotal, dataList))
+                        .then((dataList) => bot.getSongs(albums, ind + 1, readObjListTotal, dataList, loadedtracks))
                         .then((result) => resolve(result));
                     }
                     else {
-                        bot.getSongs(albums, ind + 1, readObjListTotal, [])
+                        bot.getSongs(albums, ind + 1, readObjListTotal, [], loadedtracks)
                         .then((result) => resolve(result));
                     }
                 })
+                .catch((error) => {
+                    if (error.statusCode === 500 || error.statusCode === 502) {
+                        console.log('server error')
+                        // If there's a server error try again
+                        bot.getSongs(albums, ind, readObjListTotal, [], loadedtracks);
+                    }
+                    else if (error.statusCode === 429) {
+                        console.log('rate limit, retrying after ' + error.headers["retry-after"]);
+                        bot.delay(parseInt(error.headers["retry-after"])*1000)
+                        .then(() => bot.getSongs(albums, ind, readObjListTotal, [], loadedtracks));
+                    }
+                    else {
+                        console.log("Something Went Wrong In getSongs");
+                        console.log(error);
+                    }
+                });
             }
         });
+    },
+    sliceBuilder: function (arr, slicesize) {
+        var slices = [];
+        for (var i = 0; i < arr.length; i += slicesize) {
+            slices.push(arr.slice(0, slicesize));
+        }
+        return slices;
     },
 
     // -------------------- SAVING AND LOADING -------------------- //
@@ -374,23 +422,23 @@ var bot = {
         return new Promise((resolve, reject) => {
             // Get playlist data from API
             bot.spotifyApi.getPlaylist(playlistID)
-                // Send the length of the playlist into readTracks so that it knows how much to scan
-                .then((playlistInfo) => bot.readTracks(playlistInfo.body.tracks.total, playlistID))
-                // Resolve the tracks back out to the promise
-                .then((tracks) => resolve(tracks))
-                // Error handling 
-                .catch(function (error) {
-                    if (error.statusCode === 500 || error.statusCode === 502) {
-                        // If there's a server error try again
-                        bot.getTracks(playlistID)
-                            // Resolve with results of successful attempt
-                            .then((tracks) => resolve(tracks))
-                    }
-                    else {
-                        console.log("Something Went Wrong In getTracks");
-                        console.log(error);
-                    }
-                });
+            // Send the length of the playlist into readTracks so that it knows how much to scan
+            .then((playlistInfo) => bot.readTracks(playlistInfo.body.tracks.total, playlistID))
+            // Resolve the tracks back out to the promise
+            .then((tracks) => resolve(tracks))
+            // Error handling 
+            .catch(function (error) {
+                if (error.statusCode === 500 || error.statusCode === 502) {
+                    // If there's a server error try again
+                    bot.getTracks(playlistID)
+                        // Resolve with results of successful attempt
+                        .then((tracks) => resolve(tracks))
+                }
+                else {
+                    console.log("Something Went Wrong In getTracks");
+                    console.log(error);
+                }
+            });
         });
     },
     // Songs can only be loaded 100 at a time so this helper function is used to assist the above function
@@ -412,44 +460,53 @@ var bot = {
             else {
                 // Get the next batch of tracks
                 bot.spotifyApi.getPlaylistTracks(playlistID, { offset: totTracks.length })
-                    .then((tracksInfo) => {
-                        bot.spotifyApi.getAudioFeaturesForTracks(bot.getIDs(tracksInfo.body.items))
-                        .then((featuresList) => {
-                            var readObjList = [];
-                            for (var i = 0; i < tracksInfo.body.items.length; i++) {
-                                readObjList.push(new ReadObj(tracksInfo.body.items[i], featuresList.body.audio_features[i]));
-                            }
-                            return readObjList;
-                        })
-                        // Pass that next batch into the next step of readTracks (recurs until complete list is read)
-                        .then((dataList) => bot.readTracks(goal, playlistID, totTracks, dataList))
-                        // Resolve the tracks and pass them up the recursion chain
-                        .then((result) => resolve(result))
+                .then((tracksInfo) => {
+                    bot.spotifyApi.getAudioFeaturesForTracks(bot.getIDs(tracksInfo.body.items))
+                    .then((featuresList) => {
+                        var readObjList = [];
+                        for (var i = 0; i < tracksInfo.body.items.length; i++) {
+                            readObjList.push(new ReadObj(tracksInfo.body.items[i], featuresList.body.audio_features[i]));
+                        }
+                        return readObjList;
                     })
-                    // Error handling
-                    .catch(function (error) {
-                        if (error.statusCode === 500 || error.statusCode === 502 || error.statusCode === 429) {
-                            console.log('server error')
-                            // If there's a server error try again
-                            bot.getTracks(playlistID)
-                                // Resolve with results of successful attempt
-                                .then((tracks) => resolve(tracks))
-                        }
-                        else {
-                            console.log("Something Went Wrong In readTracks");
-                            console.log(error);
-                        }
-                    });
+                    // Pass that next batch into the next step of readTracks (recurs until complete list is read)
+                    .then((dataList) => bot.readTracks(goal, playlistID, totTracks, dataList))
+                    // Resolve the tracks and pass them up the recursion chain
+                    .then((result) => resolve(result))
+                })
+                // Error handling
+                .catch(function (error) {
+                    if (error.statusCode === 500 || error.statusCode === 502) {
+                        console.log('server error')
+                        // If there's a server error try again
+                        bot.getTracks(playlistID)
+                            // Resolve with results of successful attempt
+                            .then((tracks) => resolve(tracks))
+                    }
+                    else {
+                        console.log("Something Went Wrong In readTracks");
+                        console.log(error);
+                    }
+                });
             }
         })
     },
-    getIDs: function (items) {
+    getIDs: function (items, isAlbum = false) {
         var ids = [];
-        items.forEach(item => {
-            if (item.track != null && item.track.uri.indexOf("spotify:local") == -1) {
-                ids.push(item.track.id);
-            }
-        });
+        if (isAlbum) {
+            items.forEach(track => {
+                if ((track != null && track.uri.indexOf("spotify:local") == -1)) {
+                    ids.push(track.id);
+                }
+            });
+        }
+        else {
+            items.forEach(item => {
+                if ((item.track != null && item.track.uri.indexOf("spotify:local") == -1)) {
+                    ids.push(item.track.id);
+                }
+            });
+        }
         return ids;
     },
     // Takes a playlist id and returns a list of the uris of the songs in that playlist
@@ -514,6 +571,10 @@ var bot = {
                 return out;
             }
         }
+    },
+
+    delay: function (time) {
+        return new Promise(resolve => setTimeout(resolve, time));
     }
 
     // ------------------------------------------------------------ //
