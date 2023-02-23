@@ -48,12 +48,6 @@ class Artist {
         this.id = id;
         this.songs = [];
     }
-
-    addSong(uri) {
-        if (!this.songs.includes(uri)) {
-            this.songs.push(uri);
-        }
-    }
 }
 
 class Song {
@@ -63,9 +57,12 @@ class Song {
         for (var i = 0; i < track.artists.length; i++) {
             if (bot.ArtistObjects.get(track.artists[i].uri) == null) {
                 bot.ArtistObjects.set(track.artists[i].uri, new Artist(track.artists[i].name, track.artists[i].uri, track.artists[i].id));
-                this.artists.push(bot.ArtistObjects.get(track.artists[i].uri));
             }
-            bot.ArtistObjects.get(track.artists[i].uri).addSong(track.uri);
+            var temp = bot.ArtistObjects.get(track.artists[i].uri);
+            this.artists.push(temp);
+            if (!temp.songs.includes(track.uri)) {
+                temp.songs.push(track.uri);
+            }
         }
         
         this.uri = track.uri;
@@ -102,6 +99,8 @@ var bot = {
     channelTypes: ['dm', 'text'],
     messageTypes: ['commands', 'generics', 'specials'],
     botID: '1073300774781726740',
+
+    testtrack: 0,
 
     // Channel ID for commands
     spotChannel: '1074117814853582948',
@@ -221,21 +220,21 @@ var bot = {
         
         var arr = [];
         for (var i = 0; i < uris.length; i += 50) {
-            var temp = uris.slice(0, 50);
+            var temp = uris.slice(i, i + 50);
             arr.push(temp);
         }
 
         bot.getData(arr, 0);
     },
     getData: function (arr, ind) {
-        bot.getAlbums(arr[ind], 0, [], [])
+        bot.getAlbumSets(arr[ind], 0, [], [])
         .then((albums) => bot.getSongs(bot.sliceBuilder(albums, 20), 0, [], []))
         .then((dataObjects) => {
             dataObjects.forEach(item => {
-                if (item.features != null && item.track.track != null) {
+                if (item.features != null && item.track != null) {
                     // Only support non-local songs
-                    if (item.track.track.uri.indexOf("spotify:local") == -1) {
-                        var song = new Song(item.track.track, item.features);
+                    if (item.track.uri.indexOf("spotify:local") == -1) {
+                        var song = new Song(item.track, item.features);
                         bot.SongObjects.set(song.uri, song);
                     }
                 }
@@ -256,12 +255,12 @@ var bot = {
                 .then(() => bot.getData(arr, ind));
             }
             else {
-                console.log("Something Went Wrong In getAlbums");
+                console.log("Something Went Wrong In getData");
                 console.log(error);
             }
         });
     },
-    getAlbums: function (arr, ind, totalbums, newalbums) {
+    getAlbumSets: function (arr, ind, totalbums, newalbums) {
         Array.prototype.push.apply(totalbums, newalbums);
 
         return new Promise ((resolve, reject) => {
@@ -270,26 +269,27 @@ var bot = {
             }
             else {
                 console.log("Getting artist " + (ind + 1) + " of " + arr.length);
-                bot.spotifyApi.getArtistAlbums(arr[ind]).then((albums) => {
+                bot.spotifyApi.getArtistAlbums(arr[ind], {limit : 50}).then((albums) => {
+                    var newal = [];
                     for (var i = 0; i < albums.body.items.length; i++) {
-                        newalbums.push(albums.body.items[i].id);
+                        newal.push(albums.body.items[i].id);
                     }
-                    bot.getAlbums(arr, ind + 1, totalbums, newalbums)
+                    bot.getAlbumSets(arr, ind + 1, totalbums, newal)
                     .then((albums) => resolve(albums));
                 })
                 .catch((error) => {
                     if (error.statusCode === 500 || error.statusCode === 502) {
                         console.log('server error')
                         // If there's a server error try again
-                        bot.getAlbums(arr, ind, totalbums, []);
+                        bot.getAlbumSets(arr, ind, totalbums, []);
                     }
                     else if (error.statusCode === 429) {
                         console.log('rate limit, retrying after ' + error.headers["retry-after"]);
                         bot.delay(parseInt(error.headers["retry-after"])*1000)
-                        .then(() => bot.getAlbums(arr, ind, totalbums, []));
+                        .then(() => bot.getAlbumSets(arr, ind, totalbums, []));
                     }
                     else {
-                        console.log("Something Went Wrong In getAlbums");
+                        console.log("Something Went Wrong In getAlbumSets");
                         console.log(error);
                     }
                 });
@@ -357,7 +357,7 @@ var bot = {
     sliceBuilder: function (arr, slicesize) {
         var slices = [];
         for (var i = 0; i < arr.length; i += slicesize) {
-            slices.push(arr.slice(0, slicesize));
+            slices.push(arr.slice(i, i + slicesize));
         }
         return slices;
     },
