@@ -114,9 +114,6 @@ var bot = {
         redirectUri: 'http://localhost:8880/callback'
     }),
 
-    // Data file
-    dataFile: "./data/data.csv",
-
     // Map of uris to song objects
     SongObjects: new Discord.Collection,
     ArtistObjects: new Discord.Collection,
