@@ -1,1 +1,3 @@
-/data/**/*.json
+songdata*.json
+artdata*.json
+/data/config.json
