@@ -114,6 +114,12 @@ var bot = {
     // Channel ID for changelog
     spotLogChat: '1074117847883726848',
 
+    songfiles: fs.readdirSync('./data/songs/').filter(file => file.endsWith('.json')),
+    artfiles: fs.readdirSync('./data/artists/').filter(file => file.endsWith('.json')),
+    loadedsongfileind: 0,
+    loadedartfileind: 0,
+
+
     // Spotify api
     spotifyApi: new SpotifyWebApi({
         clientId: clientId,
@@ -151,13 +157,20 @@ var bot = {
 
     // Reloads all non feature data of objects
     reloadAllData: function () {
+        for (var i = 0; i < bot.songfiles.length; i++) {
+            bot.loadSongFile(i);
+            bot.loadArtistFile(0);
+            bot.reloadLoadedData();
+        }
+    },
+    reloadLoadedData: function () {
         var songs = [];
         bot.SongObjects.forEach((song, key) => {
             if (key.includes("spotify:track:")) {
                 songs.push(song.id);
             }
             else {
-                bot.SongObjects.set(key, null);
+                bot.SongObjects.delete(key);
             }
         });
         var arr = [];
@@ -178,7 +191,7 @@ var bot = {
             .then((tracks) => {
                 for (var i = 0; i < tracks.body.tracks.length; i++) {
                     if (tracks.body.tracks[i] == null) {
-                        bot.SongObjects.set(tracks.body.tracks[i], null);
+                        bot.SongObjects.delete(tracks.body.tracks[i]);
                     }
                     else {
                         temp = bot.SongObjects.get(tracks.body.tracks[i].uri);
@@ -213,189 +226,24 @@ var bot = {
         })
     },
 
-    // Retrieves additional data for artists already present
-    loadAllArtSongs: function (startset = 0) {
-        var uris = [];
-        bot.ArtistObjects.forEach((artist, key) => {
-            uris.push(artist.id);
-        });
-        
-        var arr = [];
-        for (var i = 0; i < uris.length; i += 50) {
-            var temp = uris.slice(i, i + 50);
-            arr.push(temp);
-        }
-
-        if (startset < arr.length) {
-            bot.getData(arr, startset);
-        }
-    },
-    getData: function (arr, ind) {
-        console.log("Loading artist section " + (ind + 1) + " of " + arr.length);
-        bot.getAlbumSets(arr[ind], 0, 0, [], [])
-        .then((albums) => bot.getSongs(bot.sliceBuilder(albums, 20), 0, [], []))
-        .then((dataObjects) => {
-            dataObjects.forEach(item => {
-                if (item.features != null && item.track != null) {
-                    // Only support non-local songs
-                    if (item.track.uri.indexOf("spotify:local") == -1 && item.track.uri.includes("spotify:track")) {
-                        var song = new Song(item.track, item.features);
-                        bot.SongObjects.set(song.uri, song);
-                    }
-                }
-            });
-            bot.saveData();
-            bot.count();
-            if (ind + 1 < arr.length) {
-                bot.getData(arr, ind + 1);
-            }
-        })
-        .catch((error) => {
-            if (error.statusCode === 500 || error.statusCode === 502) {
-                console.log('server error')
-                // If there's a server error try again
-                bot.getData(arr, ind);
-            }
-            else if (error.statusCode === 429) {
-                console.log('rate limit, retrying after ' + error.headers["retry-after"]);
-                bot.delay(parseInt(error.headers["retry-after"])*1000)
-                .then(() => bot.getData(arr, ind));
-            }
-            else {
-                console.log("Something Went Wrong In getData");
-                console.log(error);
-            }
-        });
-    },
-    getAlbumSets: function (arr, ind, offind, totalbums, newalbums) {
-        Array.prototype.push.apply(totalbums, newalbums);
-
-        return new Promise ((resolve, reject) => {
-            if (ind >= arr.length) {
-                resolve(totalbums);
-            }
-            else {
-                console.log("Getting artist " + (ind + 1) + " of " + arr.length);
-                bot.spotifyApi.getArtistAlbums(arr[ind], {limit : 50, offset : (offind * 50)}).then((albums) => {
-                    var newal = [];
-                    for (var i = 0; i < albums.body.items.length; i++) {
-                        newal.push(albums.body.items[i].id);
-                    }
-                    if (albums.body.total > (offind + 1) * 50) {
-                        bot.getAlbumSets(arr, ind, offind + 1, totalbums, newal)
-                        .then((albums) => resolve(albums));
-                    }
-                    else {
-
-                        bot.getAlbumSets(arr, ind + 1, 0, totalbums, newal)
-                        .then((albums) => resolve(albums));
-                    }
-                })
-                .catch((error) => {
-                    if (error.statusCode === 500 || error.statusCode === 502) {
-                        console.log('server error')
-                        // If there's a server error try again
-                        bot.getAlbumSets(arr, ind, offind, totalbums, []);
-                    }
-                    else if (error.statusCode === 429) {
-                        console.log('rate limit, retrying after ' + error.headers["retry-after"]);
-                        bot.delay(parseInt(error.headers["retry-after"])*1000)
-                        .then(() => bot.getAlbumSets(arr, ind, offind, totalbums, []));
-                    }
-                    else {
-                        console.log("Something Went Wrong In getAlbumSets");
-                        console.log(error);
-                    }
-                });
-            }
-        });
-    },
-    getSongs: function (albums, ind, readObjListTotal, readObjListNew, loadedtracks = []) {
-        // get tracks from album get features from tracks make song objects
-        if (readObjListNew != []) {
-            Array.prototype.push.apply(readObjListTotal, readObjListNew);
-        }
-
-        return new Promise ((resolve, reject) => {
-            if (ind >= albums.length) {
-                resolve(readObjListTotal);
-            }
-            else {
-                console.log("Getting album set " + (ind + 1) + " of " + albums.length);
-                bot.spotifyApi.getAlbums(albums[ind])
-                .then((albums) => {
-                    albums.body.albums.forEach(album => {
-                        album.tracks.items.forEach(track => {
-                            loadedtracks.push(track);
-                        });
-                    });
-                })
-                .then(() => {
-                    if (loadedtracks.length >= 100 || ind == albums.length - 1) {
-                        var temp = loadedtracks.splice(0, 100);
-                        bot.spotifyApi.getAudioFeaturesForTracks(bot.getIDs(temp, true))
-                        .then((featuresList) => {
-                            var readObjList = [];
-                            for (var i = 0; i < temp.length; i++) {
-                                readObjList.push(new ReadObj(temp[i], featuresList.body.audio_features[i]));
-                            }
-                            return readObjList;
-                        })
-                        .then((dataList) => {
-                            bot.delay(100)
-                            .then(() => bot.getSongs(albums, ind + 1, readObjListTotal, dataList, loadedtracks))
-                            .then((result) => resolve(result));
-                        })
-                    }
-                    else {
-                        bot.getSongs(albums, ind + 1, readObjListTotal, [], loadedtracks)
-                        .then((result) => resolve(result));
-                    }
-                })
-                .catch((error) => {
-                    if (error.statusCode === 500 || error.statusCode === 502) {
-                        console.log('server error')
-                        // If there's a server error try again
-                        bot.getSongs(albums, ind, readObjListTotal, [], loadedtracks);
-                    }
-                    else if (error.statusCode === 429) {
-                        console.log('rate limit, retrying after ' + error.headers["retry-after"]);
-                        bot.delay(parseInt((error.headers["retry-after"])*1000) + 1000)
-                        .then(() => bot.getSongs(albums, ind, readObjListTotal, [], loadedtracks));
-                    }
-                    else {
-                        console.log("Something Went Wrong In getSongs");
-                        console.log(error);
-                    }
-                });
-            }
-        });
-    },
-    sliceBuilder: function (arr, slicesize) {
-        var slices = [];
-        for (var i = 0; i < arr.length; i += slicesize) {
-            slices.push(arr.slice(i, i + slicesize));
-        }
-        return slices;
-    },
-
     // -------------------- SAVING AND LOADING -------------------- //
     loadData: function () {
         // Get saved data
-        var songfile = './data/songdata.json';
-        var artfile = './data/artdata.json';
-        var songdata = JSON.parse(fs.readFileSync(songfile));
-        var artdata = JSON.parse(fs.readFileSync(artfile));
-
-        for (var i = 0; i < songdata.keys.length; i++) {
-            if (songdata.songs[i] != null) {
-                bot.SongObjects.set(songdata.keys[i], songdata.songs[i]);
+        for (var i = 0; i < bot.songfiles.length; i++) {
+            bot.SongObjects.clear();
+            var songdata = JSON.parse(fs.readFileSync('./data/songs/' + bot.songfiles[i]));
+            for (var o = 0; o < songdata.keys.length; o++) {
+                bot.SongObjects.set(songdata.keys[o], songdata.data[o]);
             }
+            bot.loadedsongfileind = i;
         }
-        for (var i = 0; i < artdata.keys.length; i++) {
-            if (artdata.artists[i] != null) {
-                bot.ArtistObjects.set(artdata.keys[i], artdata.artists[i]);
+        for (var i = 0; i < bot.artfiles.length; i++) {
+            bot.ArtistObjects.clear();
+            var artdata = JSON.parse(fs.readFileSync('./data/artists/' + bot.artfiles[i]));
+            for (var o = 0; o < artdata.keys.length; o++) {
+                bot.ArtistObjects.set(artdata.keys[o], artdata.data[o]);
             }
+            bot.loadedartfileind = i;
         }
 
         // Log activity
@@ -404,36 +252,97 @@ var bot = {
 
         bot.saveData();
     },
-    saveData: function () {
-        var songarrs = bot.constructDataFiles(bot.SongObjects);
-        var artarrs = bot.constructDataFiles(bot.ArtistObjects);
+    loadSongFile: function (ind) {
+        // Get saved data
+        if (ind < bot.songfiles.length) {
+            bot.SongObjects.clear();
+            var songdata = JSON.parse(fs.readFileSync('./data/songs/' + bot.songfiles[ind]));
+            for (var i = 0; i < songdata.keys.length; i++) {
+                bot.SongObjects.set(songdata.keys[i], songdata.data[i]);
+            }
+            bot.loadedsongfileind = ind;
 
-        var songfile = './data/songdata';
-        var artfile = './data/artdata';
+            bot.saveData();
+
+            // Log activity
+            console.log("Song File " + ind + " Loaded");
+            bot.client.channels.cache.get(bot.spotLogChat).send("Song File " + ind + " Loaded");
+        }
+    },
+    loadArtistFile: function (ind = 0) {
+        // Get saved data
+        bot.ArtistObjects.clear();
+        var artdata = JSON.parse(fs.readFileSync('./data/artists/' + bot.artfiles[ind]));
+        for (var i = 0; i < artdata.keys.length; i++) {
+            bot.ArtistObjects.set(artdata.keys[i], artdata.data[i]);
+        }
+        bot.loadedartfileind = ind;
+        
+        bot.saveData();
+        
+        // Log activity
+        console.log("Artist File " + ind + " Loaded");
+        bot.client.channels.cache.get(bot.spotLogChat).send("Artist File " + ind + " Loaded");
+    },
+    saveData: function () {
+        var songarrs = bot.constructDataFiles(bot.SongObjects, 200000);
+        var artarrs = bot.constructDataFiles(bot.ArtistObjects, 1000000);
+
+        var songfile = './data/songs/songdata';
+        var artfile = './data/artists/artdata';
         var suffix = '.json'
 
         // Saves data to a .json files
-        for (var i = 0; i < songarrs.length; i++) {
-            fs.writeFileSync((songfile + i + suffix), JSON.stringify(songarrs[i]), e => {
-                if (e) throw e;
-            });
+        fs.writeFileSync((songfile + bot.loadedsongfileind + suffix), JSON.stringify(songarrs[0]), e => {
+            if (e) throw e;
+        });
+        fs.writeFileSync((artfile + bot.loadedartfileind + suffix), JSON.stringify(artarrs[0]), e => {
+            if (e) throw e;
+        });
+
+        // If current song list is full save it and start a new one
+        if (songarrs[0].length == 200000) {
+            bot.SongObjects.clear();
+            if (songarrs.length > 1) {
+                songarrs[1].forEach((song, key) => {
+                    bot.SongObjects.set(key, song);
+                });
+            }
+            bot.songfiles.push(songfile + bot.loadedsongfileind + suffix);
+            bot.loadedsongfileind = bot.loadedsongfileind + 1;
         }
-        for (var i = 0; i < artarrs.length; i++) {
-            fs.writeFileSync((artfile + i + suffix), JSON.stringify(artarrs[i]), e => {
-                if (e) throw e;
-            });
+        
+        // If current artist list is full save it and start a new one
+        if (artarrs[0].length == 1000000) {
+            bot.ArtistObjects.clear();
+            if (artarrs.length > 1) {
+                artarrs[1].forEach((artist, key) => {
+                    bot.ArtistObjects.set(key, artist);
+                });
+            }
+            bot.artfiles.push(artfile + bot.loadedartfileind + suffix);
+            bot.loadedartfileind = bot.loadedartfileind + 1;
         }
 
         // Log activity
         console.log("Data Saved");
         bot.client.channels.cache.get(bot.spotLogChat).send("Data Saved");
     },
-    constructDataFiles: function (dataarr) {
+    checkSaveNewFile: function () {
+        if (bot.SongObjects.size >= 200000) {
+            // Log activity
+            console.log("Storage Full, Saving File");
+            bot.client.channels.cache.get(bot.spotLogChat).send("Storage Full, Saving File");
+
+            bot.saveData();
+        }
+    },
+    constructDataFiles: function (dataarr, limit) {
         var dkeys = Array.from(dataarr.keys());
         var ddata = Array.from(dataarr.values());
-        objarr = [];
-        for (var i = 0; i < dataarr.keys.length; i += 200000) {
-            objarr.push(new SLObj(dkeys.slice(i, i + 200000), ddata.slice(i, i + 200000)));
+        var objarr = [];
+        for (var i = 0; i < dkeys.length; i += limit) {
+            objarr.push(new SLObj(dkeys.slice(i, i + limit), ddata.slice(i, i + limit)));
         }
         return objarr;
     },
@@ -539,6 +448,10 @@ var bot = {
         console.log("Retrieving Data");
         bot.client.channels.cache.get(bot.spotLogChat).send("Retrieving Data");
 
+        bot.saveData(bot.loadedsongfileind);
+        bot.loadSongFile(bot.songfiles.length - 1);
+        bot.loadArtistFile(0);
+
         // Get a list of uris from given playlist
         return new Promise((resolve, reject) => {
             // Create an empty list to return
@@ -547,24 +460,214 @@ var bot = {
                 data.forEach(item => {
                     // Only support non-local songs
                     if (item.features != null && item.track.track != null) {
-                        if (item.track.track.uri.indexOf("spotify:local") == -1 && item.track.track.uri.includes("spotify:track")) {
+                        if (item.track.track.uri.indexOf("spotify:local") == -1 && item.track.track.uri.includes("spotify:track") && !bot.songExists(item.track.track.artists[0].uri, item.track.track.uri)) {
                             var song = new Song(item.track.track, item.features);
                             bot.SongObjects.set(song.uri, song);
+                            bot.checkSaveNewFile();
                         }
                     }
                 });
                 bot.saveData();
-                bot.count();
+                bot.scount();
             })
         })
         .catch(() => reject());
     },
-    // Counts songs in the database
-    count: function () {
-        var count = 0;
-        bot.SongObjects.forEach((song, key) => {
-            count++;
+
+    // Retrieves additional data for artists already present
+    loadAllArtSongs: function (startset = 0) {
+        bot.saveData(bot.loadedsongfileind);
+        bot.loadSongFile(bot.songfiles.length - 1);
+        bot.loadArtistFile(0);
+
+        var uris = [];
+        bot.ArtistObjects.forEach((artist, key) => {
+            uris.push(artist.id);
         });
+        
+        var arr = [];
+        for (var i = 0; i < uris.length; i += 50) {
+            var temp = uris.slice(i, i + 50);
+            arr.push(temp);
+        }
+
+        if (startset < arr.length) {
+            bot.getData(arr, startset);
+        }
+    },
+    // Constructs a list of lists each containing 50 artist ids
+    getData: function (arr, ind) {
+        console.log("Loading artist section " + (ind + 1) + " of " + arr.length);
+        bot.getAlbumSets(arr[ind], 0, 0, [], [])
+        .then((albums) => bot.getSongs(bot.sliceBuilder(albums, 20), 0, [], []))
+        .then((dataObjects) => {
+            dataObjects.forEach(item => {
+                if (item.features != null && item.track != null) {
+                    // Only support non-local songs
+                    if (item.track.uri.indexOf("spotify:local") == -1 && item.track.uri.includes("spotify:track") && !bot.songExists(item.track.artists[0].uri, item.track.uri)) {
+                        var song = new Song(item.track, item.features);
+                        bot.SongObjects.set(song.uri, song);
+                        bot.checkSaveNewFile();
+                    }
+                }
+            });
+            bot.saveData();
+            bot.scount();
+            if (ind + 1 < arr.length) {
+                bot.getData(arr, ind + 1);
+            }
+        })
+        .catch((error) => {
+            if (error.statusCode === 500 || error.statusCode === 502) {
+                console.log('server error')
+                // If there's a server error try again
+                bot.getData(arr, ind);
+            }
+            else if (error.statusCode === 429) {
+                console.log('rate limit, retrying after ' + error.headers["retry-after"]);
+                bot.delay(parseInt(error.headers["retry-after"])*1000)
+                .then(() => bot.getData(arr, ind));
+            }
+            else {
+                console.log("Something Went Wrong In getData");
+                console.log(error);
+            }
+        });
+    },
+    // Iterates over a list of artists 50 at a time and gets their albums
+    getAlbumSets: function (arr, ind, offind, totalbums, newalbums) {
+        Array.prototype.push.apply(totalbums, newalbums);
+
+        return new Promise ((resolve, reject) => {
+            if (ind >= arr.length) {
+                resolve(totalbums);
+            }
+            else {
+                console.log("Getting artist " + (ind + 1) + " of " + arr.length);
+                bot.spotifyApi.getArtistAlbums(arr[ind], {limit : 50, offset : (offind * 50)}).then((albums) => {
+                    var next = false;
+                    var newal = [];
+                    for (var i = 0; i < albums.body.items.length; i++) {
+                        newal.push(albums.body.items[i].id);
+                        if (albums.body.items[i].album_group == "appears_on" || albums.body.items[i].album_group == "compilation") {
+                            next = true;
+                        }
+                    }
+                    if (albums.body.total > (offind + 1) * 50 && !next) {
+                        bot.getAlbumSets(arr, ind, offind + 1, totalbums, newal)
+                        .then((albums) => resolve(albums));
+                    }
+                    else {
+                        bot.getAlbumSets(arr, ind + 1, 0, totalbums, newal)
+                        .then((albums) => resolve(albums));
+                    }
+                })
+                .catch((error) => {
+                    if (error.statusCode === 500 || error.statusCode === 502) {
+                        console.log('server error')
+                        // If there's a server error try again
+                        bot.getAlbumSets(arr, ind, offind, totalbums, []);
+                    }
+                    else if (error.statusCode === 429) {
+                        console.log('rate limit, retrying after ' + error.headers["retry-after"]);
+                        bot.delay(parseInt(error.headers["retry-after"])*1000)
+                        .then(() => bot.getAlbumSets(arr, ind, offind, totalbums, []));
+                    }
+                    else {
+                        console.log("Something Went Wrong In getAlbumSets");
+                        console.log(error);
+                    }
+                });
+            }
+        });
+    },
+    // Retrieves song data from a list of albums
+    getSongs: function (albums, ind, readObjListTotal, readObjListNew, loadedtracks = []) {
+        // get tracks from album get features from tracks make song objects
+        if (readObjListNew != []) {
+            Array.prototype.push.apply(readObjListTotal, readObjListNew);
+        }
+
+        return new Promise ((resolve, reject) => {
+            if (ind >= albums.length) {
+                resolve(readObjListTotal);
+            }
+            else {
+                console.log("Getting album set " + (ind + 1) + " of " + albums.length);
+                bot.spotifyApi.getAlbums(albums[ind])
+                .then((albums) => {
+                    albums.body.albums.forEach(album => {
+                        album.tracks.items.forEach(track => {
+                            loadedtracks.push(track);
+                        });
+                    });
+                })
+                .then(() => {
+                    if (loadedtracks.length >= 100 || ind == albums.length - 1) {
+                        var temp = loadedtracks.splice(0, 100);
+                        bot.spotifyApi.getAudioFeaturesForTracks(bot.getIDs(temp, true))
+                        .then((featuresList) => {
+                            var readObjList = [];
+                            for (var i = 0; i < temp.length; i++) {
+                                readObjList.push(new ReadObj(temp[i], featuresList.body.audio_features[i]));
+                            }
+                            return readObjList;
+                        })
+                        .then((dataList) => {
+                            bot.delay(100)
+                            .then(() => bot.getSongs(albums, ind + 1, readObjListTotal, dataList, loadedtracks))
+                            .then((result) => resolve(result));
+                        })
+                    }
+                    else {
+                        bot.getSongs(albums, ind + 1, readObjListTotal, [], loadedtracks)
+                        .then((result) => resolve(result));
+                    }
+                })
+                .catch((error) => {
+                    if (error.statusCode === 500 || error.statusCode === 502) {
+                        console.log('server error')
+                        // If there's a server error try again
+                        bot.getSongs(albums, ind, readObjListTotal, [], loadedtracks);
+                    }
+                    else if (error.statusCode === 429) {
+                        console.log('rate limit, retrying after ' + error.headers["retry-after"]);
+                        bot.delay(parseInt((error.headers["retry-after"])*1000) + 1000)
+                        .then(() => bot.getSongs(albums, ind, readObjListTotal, [], loadedtracks));
+                    }
+                    else {
+                        console.log("Something Went Wrong In getSongs");
+                        console.log(error);
+                    }
+                });
+            }
+        });
+    },
+    // Portions arrayys of artists, albums, and songs to prevent memory issues
+    sliceBuilder: function (arr, slicesize) {
+        var slices = [];
+        for (var i = 0; i < arr.length; i += slicesize) {
+            slices.push(arr.slice(i, i + slicesize));
+        }
+        return slices;
+    },
+    // Checks if a song exists by looking at it's artist's loaded songs
+    songExists: function (auri, suri) {
+        if (bot.ArtistObjects.get(auri).songs.includes(suri)) {
+            return true;
+        }
+        return false;
+    },
+    
+    // Counts songs in the database
+    scount: function () {
+        var count = 0;
+        for (var i = 0; i < bot.songfiles.length; i++) {
+            bot.loadSongFile(i);
+            bot.SongObjects.forEach((song, key) => {
+                count++;
+            });
+        }
 
         // Log activity
         console.log("There are now " + count + " songs in the database");
@@ -573,13 +676,20 @@ var bot = {
     // Counts artists in the database
     acount: function () {
         var count = 0;
-        bot.ArtistObjects.forEach((artist, key) => {
-            count++;
-        });
+        for (var i = 0; i < bot.artfiles.length; i++) {
+            bot.loadArtistFile(i);
+            bot.ArtistObjects.forEach((artist, key) => {
+                count++;
+            });
+        }
 
         // Log activity
         console.log("There are now " + count + " artists in the database");
         bot.client.channels.cache.get(bot.spotLogChat).send("There are now " + count + " artists in the database");
+
+        if (bot.loadedartfileind != 0) {
+            bot.loadArtistFile(0);
+        }
     },
     // ------------------------------------------------------------ //
 
@@ -600,7 +710,6 @@ var bot = {
     delay: function (time) {
         return new Promise(resolve => setTimeout(resolve, time));
     }
-
     // ------------------------------------------------------------ //
 }
 
