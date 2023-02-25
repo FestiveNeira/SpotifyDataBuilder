@@ -293,31 +293,34 @@ var bot = {
         var suffix = '.json'
 
         // Saves data to a .json files
-        fs.writeFileSync((songfile + bot.loadedsongfileind + suffix), JSON.stringify(songarrs[0]), e => {
-            if (e) throw e;
-        });
-        fs.writeFileSync((artfile + bot.loadedartfileind + suffix), JSON.stringify(artarrs[0]), e => {
-            if (e) throw e;
-        });
+        for (var i = 0; i < songarrs.length; i++) {
+            fs.writeFileSync((songfile + (bot.loadedsongfileind + i) + suffix), JSON.stringify(songarrs[0]), e => {
+                if (e) throw e;
+            });
+        }
+        for (var i = 0; i < artarrs.length; i++) {
+            fs.writeFileSync((artfile + (bot.loadedartfileind + i) + suffix), JSON.stringify(artarrs[0]), e => {
+                if (e) throw e;
+            });
+        }
 
         // If current song list is full save it and start a new one
-        if (songarrs[0].length == 200000) {
-            bot.SongObjects.clear();
+        if (songarrs.length > 0 && songarrs[0].keys.length == 200000) {
             if (songarrs.length > 1) {
-                songarrs[1].forEach((song, key) => {
-                    bot.SongObjects.set(key, song);
+                bot.SongObjects.clear();
+                songarrs[1].forEach(slo => {
+                    bot.SongObjects.set(slo.key, slo.data);
                 });
             }
-            bot.songfiles.push(songfile + bot.loadedsongfileind + suffix);
             bot.loadedsongfileind = bot.loadedsongfileind + 1;
         }
         
         // If current artist list is full save it and start a new one
-        if (artarrs[0].length == 1000000) {
-            bot.ArtistObjects.clear();
+        if (artarrs.length > 0 && artarrs[0].keys.length == 1000000) {
             if (artarrs.length > 1) {
-                artarrs[1].forEach((artist, key) => {
-                    bot.ArtistObjects.set(key, artist);
+                bot.ArtistObjects.clear();
+                artarrs[1].forEach(slo => {
+                    bot.ArtistObjects.set(slo.key, slo.data);
                 });
             }
             bot.artfiles.push(artfile + bot.loadedartfileind + suffix);
@@ -469,6 +472,7 @@ var bot = {
                 });
                 bot.saveData();
                 bot.scount();
+                bot.acount();
             })
         })
         .catch(() => reject());
@@ -513,6 +517,7 @@ var bot = {
             });
             bot.saveData();
             bot.scount();
+            bot.acount();
             if (ind + 1 < arr.length) {
                 bot.getData(arr, ind + 1);
             }
@@ -558,7 +563,8 @@ var bot = {
                         .then((albums) => resolve(albums));
                     }
                     else {
-                        bot.getAlbumSets(arr, ind + 1, 0, totalbums, newal)
+                        bot.delay(500)
+                        .then(() => bot.getAlbumSets(arr, ind + 1, 0, totalbums, newal))
                         .then((albums) => resolve(albums));
                     }
                 })
@@ -614,7 +620,7 @@ var bot = {
                             return readObjList;
                         })
                         .then((dataList) => {
-                            bot.delay(100)
+                            bot.delay(500)
                             .then(() => bot.getSongs(albums, ind + 1, readObjListTotal, dataList, loadedtracks))
                             .then((result) => resolve(result));
                         })
@@ -653,12 +659,12 @@ var bot = {
     },
     // Checks if a song exists by looking at it's artist's loaded songs
     songExists: function (auri, suri) {
-        if (bot.ArtistObjects.get(auri).songs.includes(suri)) {
+        if (bot.ArtistObjects.get(auri) == null || bot.ArtistObjects.get(auri).songs.includes(suri)) {
             return true;
         }
         return false;
     },
-    
+
     // Counts songs in the database
     scount: function () {
         var count = 0;
