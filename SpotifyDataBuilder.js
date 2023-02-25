@@ -108,6 +108,7 @@ var bot = {
     botID: '1073300774781726740',
 
     testtrack: 0,
+    totalrequests: 0,
 
     // Channel ID for commands
     spotChannel: '1074117814853582948',
@@ -187,6 +188,7 @@ var bot = {
     fixSongs: function (arr, ind) {
         console.log("Getting section " + (ind + 1) + " of " + arr.length);
         return new Promise ((resolve, reject) => {
+            bot.totalrequests += 1;
             bot.spotifyApi.getTracks(arr[ind])
             .then((tracks) => {
                 for (var i = 0; i < tracks.body.tracks.length; i++) {
@@ -357,6 +359,7 @@ var bot = {
         // Return a promise
         return new Promise((resolve, reject) => {
             // Get playlist data from API
+            bot.totalrequests += 1;
             bot.spotifyApi.getPlaylist(playlistID)
             // Send the length of the playlist into readTracks so that it knows how much to scan
             .then((playlistInfo) => bot.readTracks(playlistInfo.body.tracks.total, playlistID))
@@ -395,8 +398,10 @@ var bot = {
             }
             else {
                 // Get the next batch of tracks
+                bot.totalrequests += 1;
                 bot.spotifyApi.getPlaylistTracks(playlistID, { offset: totTracks.length })
                 .then((tracksInfo) => {
+                    bot.totalrequests += 1;
                     bot.spotifyApi.getAudioFeaturesForTracks(bot.getIDs(tracksInfo.body.items))
                     .then((featuresList) => {
                         var readObjList = [];
@@ -529,6 +534,7 @@ var bot = {
                 bot.getData(arr, ind);
             }
             else if (error.statusCode === 429) {
+                bot.rcount();
                 console.log('rate limit, retrying after ' + error.headers["retry-after"]);
                 bot.delay(parseInt(error.headers["retry-after"])*1000)
                 .then(() => bot.getData(arr, ind));
@@ -549,6 +555,7 @@ var bot = {
             }
             else {
                 console.log("Getting artist " + (ind + 1) + " of " + arr.length);
+                bot.totalrequests += 1;
                 bot.spotifyApi.getArtistAlbums(arr[ind], {limit : 50, offset : (offind * 50)}).then((albums) => {
                     var next = false;
                     var newal = [];
@@ -575,6 +582,7 @@ var bot = {
                         bot.getAlbumSets(arr, ind, offind, totalbums, []);
                     }
                     else if (error.statusCode === 429) {
+                        bot.rcount();
                         console.log('rate limit, retrying after ' + error.headers["retry-after"]);
                         bot.delay(parseInt(error.headers["retry-after"])*1000)
                         .then(() => bot.getAlbumSets(arr, ind, offind, totalbums, []));
@@ -600,6 +608,7 @@ var bot = {
             }
             else {
                 console.log("Getting album set " + (ind + 1) + " of " + albums.length);
+                bot.totalrequests += 1;
                 bot.spotifyApi.getAlbums(albums[ind])
                 .then((albums) => {
                     albums.body.albums.forEach(album => {
@@ -611,6 +620,7 @@ var bot = {
                 .then(() => {
                     if (loadedtracks.length >= 100 || ind == albums.length - 1) {
                         var temp = loadedtracks.splice(0, 100);
+                        bot.totalrequests += 1;
                         bot.spotifyApi.getAudioFeaturesForTracks(bot.getIDs(temp, true))
                         .then((featuresList) => {
                             var readObjList = [];
@@ -637,6 +647,7 @@ var bot = {
                         bot.getSongs(albums, ind, readObjListTotal, [], loadedtracks);
                     }
                     else if (error.statusCode === 429) {
+                        bot.rcount();
                         console.log('rate limit, retrying after ' + error.headers["retry-after"]);
                         bot.delay(parseInt((error.headers["retry-after"])*1000) + 1000)
                         .then(() => bot.getSongs(albums, ind, readObjListTotal, [], loadedtracks));
@@ -696,6 +707,11 @@ var bot = {
         if (bot.loadedartfileind != 0) {
             bot.loadArtistFile(0);
         }
+    },
+    rcount: function () {
+        // Log requests
+        console.log("I have made " + bot.totalrequests + " requests to the Spotify API");
+        bot.client.channels.cache.get(bot.spotLogChat).send("I have made " + bot.totalrequests + " requests to the Spotify API");
     },
     // ------------------------------------------------------------ //
 
