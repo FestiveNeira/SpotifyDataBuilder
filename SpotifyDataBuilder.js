@@ -563,7 +563,7 @@ var bot = {
                         .then((albums) => resolve(albums));
                     }
                     else {
-                        bot.delay(500)
+                        bot.delay(1000)
                         .then(() => bot.getAlbumSets(arr, ind + 1, 0, totalbums, newal))
                         .then((albums) => resolve(albums));
                     }
@@ -620,7 +620,7 @@ var bot = {
                             return readObjList;
                         })
                         .then((dataList) => {
-                            bot.delay(500)
+                            bot.delay(1000)
                             .then(() => bot.getSongs(albums, ind + 1, readObjListTotal, dataList, loadedtracks))
                             .then((result) => resolve(result));
                         })
