@@ -409,20 +409,21 @@ var bot = {
 
         // Saves data to a .json files
         for (var i = 0; i < songarrs.length; i++) {
-            var ind = bot.loadedsongfileind + i;
-            fs.writeFileSync((songfile + ind + suffix), JSON.stringify(songarrs[0]), e => {
+            var sind = bot.loadedsongfileind + i;
+            fs.writeFileSync((songfile + sind + suffix), JSON.stringify(songarrs[0]), e => {
                 if (e) throw e;
             });
-            if (!bot.songfiles.includes("songdata" + ind + suffix)) {
-                bot.songfiles.push("songdata" + ind + suffix);
+            if (!bot.songfiles.includes("songdata" + sind + suffix)) {
+                bot.songfiles.push("songdata" + sind + suffix);
             }
         }
         for (var i = 0; i < artarrs.length; i++) {
-            fs.writeFileSync((artfile + (bot.loadedartfileind + i) + suffix), JSON.stringify(artarrs[0]), e => {
+            var aind = bot.loadedartfileind + i;
+            fs.writeFileSync((artfile + aind + suffix), JSON.stringify(artarrs[0]), e => {
                 if (e) throw e;
             });
-            if (!bot.artfiles.includes("artdata" + ind + suffix)) {
-                bot.artfiles.push("artdata" + ind + suffix);
+            if (!bot.artfiles.includes("artdata" + aind + suffix)) {
+                bot.artfiles.push("artdata" + aind + suffix);
             }
         }
 
