@@ -3,6 +3,6 @@ module.exports = {
     secret: false,
     description: "reloads all non-feature data",
     execute(message, args, bot) {
-        bot.reloadAllData();
+        bot.reloadAllDataRecur(0);
     }
 }
