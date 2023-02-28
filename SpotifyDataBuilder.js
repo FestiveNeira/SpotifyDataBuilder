@@ -161,34 +161,30 @@ var bot = {
         bot.loadSongFile(ind);
         bot.loadArtistFile(0);
         var x = bot.SongObjects;
-        var f = bot.checkArtData();
+        var f = bot.checkArtNameData();
         if (f.length > 0) {
-            bot.reloadArtData(f, 0).then(() => bot.saveData()).then(() => {
+            bot.reloadArtNameData(f, 0).then(() => bot.saveData()).then(() => {
                 if (bot.songfiles.length > ind + 1) {
                     bot.reloadAllDataRecur(ind + 1);
                 }
             });
         }
-        x = bot.SongObjects;
-        f = bot.checkNameData();
-        if (f.length > 0) {
-            bot.reloadNameData(f, 0).then(() => bot.saveData()).then(() => {
-                if (bot.songfiles.length > ind + 1) {
-                    bot.reloadAllDataRecur(ind + 1);
-                }
-            });
+        else {
+            if (bot.songfiles.length > ind + 1) {
+                bot.reloadAllDataRecur(ind + 1);
+            }
         }
     },
-    checkArtData: function () {
+    checkArtNameData: function () {
         var songstoget = [];
         bot.SongObjects.forEach((song, key) => {
-            if (song.artists.length == 0) {
+            if (song.artists.length == 0 || song.name == "") {
                 songstoget.push(song.id);
             }
         });
         return bot.sliceBuilder(songstoget, 50);
     },
-    reloadArtData: function (arr, ind = 0) {
+    reloadArtNameData: function (arr, ind = 0) {
         console.log("Getting section " + (ind + 1) + " of " + arr.length);
         return new Promise ((resolve, reject) => {
             bot.totalrequests += 1;
@@ -204,6 +200,7 @@ var bot = {
                         tracks.body.tracks[i].artists.forEach(artist => {
                             temp.artists.push(artist.uri);
                         });
+                        temp.name = tracks.body.tracks[i].name;
                     }
                     console.log("Section " + ind + " updated");
                 }
@@ -223,55 +220,6 @@ var bot = {
                     // If there's a server error try again
                     bot.delay(100)
                     .then(() => bot.reloadArtData(arr, ind))
-                    .then(() => resolve());
-                }
-                else {
-                    console.log("Something Went Wrong In fixSongs");
-                    console.log(error);
-                }
-            })
-        })
-    },
-    checkNameData: function () {
-        var songstoget = [];
-        bot.SongObjects.forEach((song, key) => {
-            if (song.name == "") {
-                songstoget.push(song.id);
-            }
-        });
-        return bot.sliceBuilder(songstoget, 50);
-    },
-    reloadNameData: function (arr, ind = 0) {
-        console.log("Getting section " + (ind + 1) + " of " + arr.length);
-        return new Promise ((resolve, reject) => {
-            bot.totalrequests += 1;
-            bot.spotifyApi.getTracks(arr[ind])
-            .then((tracks) => {
-                for (var i = 0; i < tracks.body.tracks.length; i++) {
-                    if (tracks.body.tracks[i] == null) {
-                        bot.SongObjects.delete(tracks.body.tracks[i]);
-                    }
-                    else {
-                        bot.SongObjects.get(tracks.body.tracks[i].uri).name = tracks.body.tracks[i].name;
-                    }
-                    console.log("Section " + ind + " updated");
-                }
-                if (arr.length > ind + 1) {
-                    bot.delay(100)
-                    .then(() => bot.reloadNameData(arr, ind + 1))
-                    .then(() => resolve());
-                }
-                else {
-                    bot.saveData();
-                    resolve();
-                }
-            })
-            .catch((error) => {
-                if (error.statusCode === 500 || error.statusCode === 502) {
-                    console.log('server error')
-                    // If there's a server error try again
-                    bot.delay(100)
-                    .then(() => bot.reloadNameData(arr, ind))
                     .then(() => resolve());
                 }
                 else {
@@ -310,6 +258,7 @@ var bot = {
             for (var o = i + 1; o < bot.songfiles.length; o++) {
                 var compfile = bot.loadCompFile(o);
                 compfile.forEach((song, key) => {
+                    var t = bot.SongObjects.get(key)
                     if (bot.SongObjects.get(key) != undefined) {
                         bot.SongObjects.delete(key);
                     }
@@ -332,6 +281,7 @@ var bot = {
             bot.SongObjects = shiftfile;
             bot.loadedsongfileind = bot.loadedsongfileind + 1;
         }
+        bot.saveData();
         bot.checkEmptyFiles();
     },
     checkEmptyFiles: function () {
@@ -350,11 +300,12 @@ var bot = {
             for (var i = 0; i < songdata.keys.length; i++) {
                 filedata.set(songdata.keys[i], songdata.data[i]);
             }
-            return filedata;
 
             // Log activity
             console.log("Song File " + ind + " Loaded For Comparison");
             bot.client.channels.cache.get(bot.spotLogChat).send("Song File " + ind + " Loaded For Comparison");
+
+            return filedata;
         }
     },
 
@@ -602,7 +553,8 @@ var bot = {
             // Create an empty list to return
             bot.getTracks(playid)
             .then((data) => {
-                data.forEach(item => {
+                var udata = bot.removeDupes(data);
+                udata.forEach(item => {
                     // Only support non-local songs
                     if (item.features != null && item.track.track != null) {
                         if (item.track.track.uri.indexOf("spotify:local") == -1 && item.track.track.uri.includes("spotify:track") && !bot.songExists(item.track.track.artists[0].uri, item.track.track.uri)) {
@@ -618,6 +570,18 @@ var bot = {
             })
         })
         .catch(() => reject());
+    },
+    removeDupes: function (data) {
+        var tdata = data;
+        for (var i = 0; i < bot.songfiles.length; i++) {
+            var file = bot.loadCompFile(i);
+            for (var o = 0; o < data.length; o++) {
+                if (file.get(data[o].track.track.uri) != undefined) {
+                    tdata.splice(o, 1);
+                }
+            }
+        }
+        return data;
     },
 
     // Retrieves additional data for artists already present
